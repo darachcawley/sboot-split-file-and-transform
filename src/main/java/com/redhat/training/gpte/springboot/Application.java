@@ -17,7 +17,10 @@
 
 package com.redhat.training.gpte.springboot;
 
-
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.dataformat.bindy.csv.BindyCsvDataFormat;
+import org.apache.camel.model.dataformat.JsonLibrary;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
@@ -27,8 +30,8 @@ import org.springframework.context.annotation.ImportResource;
 @SpringBootApplication
 // load regular Spring XML file from the classpath that contains the Camel XML DSL
 @ImportResource({"classpath:spring/camel-context.xml"})
-public class Application {
-
+public class Application extends RouteBuilder{
+	
     /**
      * A main method to start this application.
      */
@@ -36,4 +39,27 @@ public class Application {
         SpringApplication.run(Application.class, args);
     }
 
+    @Override
+    public void configure () throws Exception {
+    	
+	  onException(IllegalArgumentException.class)
+	      .to("log:fail")
+	      .to("file://src/data/error?fileName=csv-record-${date:now:yyyyMMdd}.txt")
+	      .handled(true)
+	      .stop();
+	
+	  BindyCsvDataFormat format = new BindyCsvDataFormat(org.acme.Customer.class);
+	  format.setLocale("default");
+	
+	  from("file://src/data/inbox?fileName=customers.csv&noop=true")
+	      .split()
+	      .tokenize("\n")
+	      .to("log:tokenized")
+	      .unmarshal(format)
+	      .to("log:unmarshalled")
+	      .to("dozer:customerToAccount?mappingFile=transformation.xml&sourceModel=org.acme.Customer&targetModel=org.globex.Account")
+	      .to("log:transformed")
+	      .marshal().json(JsonLibrary.Jackson)
+	      .to("file://src/data/outbox?fileName=account-${property.CamelSplitIndex}.json");
+    }
 }
